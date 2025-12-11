@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>學校午餐選擇器</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Microsoft JhengHei", "Noto Sans TC", Arial; padding: 18px; background:#f7f7fb; color:#111; }
+    .container { max-width:720px; margin:0 auto; background:#fff; padding:18px; border-radius:12px; box-shadow:0 6px 18px rgba(20,20,40,0.06); }
+    h1 { margin-top:0; font-size:1.4rem; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    select, input[type="text"] { padding:8px; border-radius:8px; border:1px solid #ddd; min-width:160px; }
+    button { padding:9px 12px; border-radius:10px; border:none; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.06); }
+    button.primary { background:#0b79f7; color:white; }
+    button.ghost { background:#eee; color:#111; }
+    ul { padding-left:18px; }
+    .result { margin-top:14px; padding:12px; border-radius:10px; background:linear-gradient(90deg,#fff,#f6fbff); border:1px solid #e6f0ff; font-weight:600; }
+    .small { font-size:0.9rem; color:#555; }
+    .chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+    .chip { padding:6px 8px; border-radius:999px; background:#f1f6ff; border:1px solid #e0e8ff; font-size:0.9rem; cursor:pointer; }
+    .chip.active { background:#0b79f7; color:white; border-color:transparent; }
+    .footer { margin-top:14px; font-size:0.85rem; color:#666; }
+  </style>
+</head>
+<body>
+  <div class="container" role="main">
+    <h1>學校午餐選擇器 🍱</h1>
+    <p class="small">適合校內／校園周邊方便取得的午餐選項。可新增選項、用偏好篩選，或讓系統幫你隨機挑一個。</p>
+
+    <div class="controls" aria-hidden="false">
+      <select id="preset" title="快速選擇預設清單">
+        <option value="default">預設清單（校內便當、三明治、泡麵、沙拉等）</option>
+        <option value="vegetarian">素食選單</option>
+        <option value="cheap">低價便當 / 小吃</option>
+      </select>
+
+      <input id="newItem" type="text" placeholder="新增一項（例如：炸雞便當）" />
+      <button id="addBtn" class="ghost">新增</button>
+
+      <button id="randomBtn" class="primary">隨機挑一個</button>
+      <button id="clearBtn" class="ghost">清除自訂</button>
+    </div>
+
+    <div class="chips" id="tags">
+      <span class="chip active" data-tag="all">全部</span>
+      <span class="chip" data-tag="cooked">熱食 / 便當</span>
+      <span class="chip" data-tag="fast">速食 / 三明治</span>
+      <span class="chip" data-tag="noodle">麵 / 泡麵</span>
+      <span class="chip" data-tag="light">輕食 / 沙拉 / 水果</span>
+      <span class="chip" data-tag="veg">素食</span>
+    </div>
+
+    <div>
+      <strong>可選項目（點選可啟用/停用）</strong>
+      <ul id="itemsList" aria-live="polite"></ul>
+    </div>
+
+    <div class="result" id="result" aria-live="polite">還沒挑選喔～按「隨機挑一個」或點選一項。</div>
+
+    <div class="footer">
+      <div>提示：選單會存在瀏覽器（本機），下次開啟會記得你上次新增的項目與上次挑選。</div>
+      <div style="margin-top:6px;">如果你想要我把預設選項改為更貼近你學校的餐飲（例如學校餐廳名稱），直接把店名或菜單貼給我，我會幫你修改。</div>
+    </div>
+  </div>
+
+  <script>
+    // 預設選項（以學校方便取得為主）
+    const DEFAULTS = {
+      default: [
+        {name:'校內便當（便當店）', tags:['cooked']},
+        {name:'校內自助餐', tags:['cooked']},
+        {name:'三明治 / 吐司', tags:['fast']},
+        {name:'飯糰 / 飯糰店', tags:['fast']},
+        {name:'泡麵（微波）', tags:['noodle']},
+        {name:'沙拉 / 蔬食吧', tags:['light','veg']},
+        {name:'滷味攤 / 小吃車', tags:['cheap','cooked']},
+        {name:'便當外送（學校外）', tags:['cooked']},
+        {name:'水果+優格', tags:['light','veg']},
+        {name:'麵線 / 湯麵', tags:['noodle']},
+        {name:'咖哩飯或蓋飯', tags:['cooked']},
+        {name:'素便當 / 素食', tags:['veg','cooked']}
+      ],
+      vegetarian: [
+        {name:'素便當 / 素食餐盒', tags:['veg','cooked']},
+        {name:'沙拉吧', tags:['light','veg']},
+        {name:'豆皮飯糰', tags:['fast','veg']},
+        {name:'味噌湯+飯', tags:['light','veg']}
+      ],
+      cheap: [
+        {name:'滷肉飯 / 小吃', tags:['cheap','cooked']},
+        {name:'便當特價', tags:['cheap','cooked']},
+        {name:'小販炸物', tags:['cheap','fast']},
+        {name:'關東煮', tags:['cheap','cooked']}
+      ]
+    };
+
+    // state
+    let items = [];
+    const STORAGE_KEY = 'school_lunch_picker_items_v1';
+    const LAST_PICK_KEY = 'school_lunch_picker_last_v1';
+
+    // dom
+    const itemsList = document.getElementById('itemsList');
+    const resultBox = document.getElementById('result');
+    const newItemInput = document.getElementById('newItem');
+    const addBtn = document.getElementById('addBtn');
+    const randomBtn = document.getElementById('randomBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const preset = document.getElementById('preset');
+    const chips = document.getElementById('tags');
+
+    // load from storage or defaults
+    function load() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        try {
+          items = JSON.parse(raw);
+        } catch(e) {
+          items = DEFAULTS.default.slice();
+        }
+      } else {
+        items = DEFAULTS.default.slice();
+      }
+      const last = localStorage.getItem(LAST_PICK_KEY);
+      if (last) resultBox.textContent = '上次選擇：' + last;
+      renderList();
+    }
+
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    }
+
+    function renderList(filterTag = 'all') {
+      itemsList.innerHTML = '';
+      items.forEach((it, idx) => {
+        if (filterTag !== 'all' && !(it.tags || []).includes(filterTag)) return;
+        const li = document.createElement('li');
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = true;
+        chk.style.marginRight = '8px';
+        chk.addEventListener('change', () => {
+          // disabled => remove visually but keep in data by setting disabled flag
+          it.disabled = !chk.checked;
+          save();
+        });
+        const span = document.createElement('span');
+        span.textContent = it.name + (it.tags && it.tags.length ? ' · ' + it.tags.join('/') : '');
+        span.style.cursor = 'pointer';
+        span.title = '點一下快速選擇這項';
+        span.addEventListener('click', () => {
+          pickItem(it);
+        });
+
+        const del = document.createElement('button');
+        del.textContent = '刪除';
+        del.className = 'ghost';
+        del.style.marginLeft = '8px';
+        del.addEventListener('click', () => {
+          if (confirm('確定要刪除「' + it.name + '」嗎？')) {
+            items.splice(idx,1);
+            save();
+            renderList(filterTag);
+          }
+        });
+
+        li.appendChild(chk);
+        li.appendChild(span);
+        li.appendChild(del);
+        itemsList.appendChild(li);
+      });
+      if (!itemsList.childElementCount) {
+        itemsList.innerHTML = '<li class="small">沒有符合的選項（你可以新增或切換標籤）</li>';
+      }
+    }
+
+    function pickItem(item) {
+      resultBox.textContent = '→ ' + item.name;
+      localStorage.setItem(LAST_PICK_KEY, item.name);
+    }
+
+    randomBtn.addEventListener('click', () => {
+      // collect enabled items currently visible (respect active tag)
+      const activeChip = document.querySelector('.chip.active');
+      const tag = activeChip ? activeChip.dataset.tag : 'all';
+      const candidates = items.filter(it => !it.disabled && (tag === 'all' || (it.tags||[]).includes(tag)));
+      if (!candidates.length) {
+        resultBox.textContent = '沒有可用選項，請新增或取消停用項目。';
+        return;
+      }
+      const i = Math.floor(Math.random() * candidates.length);
+      pickItem(candidates[i]);
+    });
+
+    addBtn.addEventListener('click', () => {
+      const v = newItemInput.value.trim();
+      if (!v) return;
+      // basic guess tags
+      const lower = v.toLowerCase();
+      const tags = [];
+      if (lower.includes('沙拉') || lower.includes('水果') || lower.includes('優格')) tags.push('light');
+      if (lower.includes('素') || lower.includes('veg')) tags.push('veg');
+      if (lower.includes('泡麵') || lower.includes('麵') || lower.includes('麵線')) tags.push('noodle');
+      if (lower.includes('三明治') || lower.includes('吐司') || lower.includes('飯糰')) tags.push('fast');
+      if (lower.includes('便當') || lower.includes('蓋飯') || lower.includes('咖哩')) tags.push('cooked');
+      items.unshift({name:v, tags: tags.length?tags:['cooked']});
+      save();
+      newItemInput.value = '';
+      renderList(document.querySelector('.chip.active').dataset.tag || 'all');
+    });
+
+    clearBtn.addEventListener('click', () => {
+      if (confirm('會清除你所有自訂項目並還原到預設選單，確定嗎？')) {
+        localStorage.removeItem(STORAGE_KEY);
+        load();
+      }
+    });
+
+    preset.addEventListener('change', () => {
+      const val = preset.value;
+      if (DEFAULTS[val]) {
+        // 用選取的預設覆蓋目前 list（但保留 localStorage 的自訂可由使用者刪除）
+        items = DEFAULTS[val].slice();
+        save();
+        renderList(document.querySelector('.chip.active').dataset.tag || 'all');
+      }
+    });
+
+    // chip (tag) click
+    chips.addEventListener('click', (ev) => {
+      const target = ev.target.closest('.chip');
+      if (!target) return;
+      document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+      target.classList.add('active');
+      renderList(target.dataset.tag);
+    });
+
+    // init
+    load();
+  </script>
+</body>
+</html>
